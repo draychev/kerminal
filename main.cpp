@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QPainter>
 #include <QProcess>
+#include <QStatusBar>
 #include <QTabBar>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -539,6 +540,7 @@ class MainWindow : public QMainWindow {
  public:
   MainWindow() {
     setWindowTitle("kerminal");
+    statusBar();
     auto *central = new QWidget(this);
     auto *layout = new QVBoxLayout(central);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -580,6 +582,20 @@ class MainWindow : public QMainWindow {
       close();
       return;
     }
+    if (line.startsWith("%pause")) {
+      paused_ = true;
+      statusBar()->showMessage("tmux output paused", 2000);
+      return;
+    }
+    if (line.startsWith("%continue")) {
+      paused_ = false;
+      statusBar()->showMessage("tmux output resumed", 2000);
+      return;
+    }
+    if (line.startsWith("%message ")) {
+      statusBar()->showMessage(line.mid(9), 3000);
+      return;
+    }
     if (line.startsWith("%layout-change") ||
         line.startsWith("%window-add") ||
         line.startsWith("%window-close") ||
@@ -589,13 +605,16 @@ class MainWindow : public QMainWindow {
         line.startsWith("%pane-close") ||
         line.startsWith("%pane-mode-changed") ||
         line.startsWith("%pane-modified") ||
+        line.startsWith("%paste-buffer-added") ||
+        line.startsWith("%paste-buffer-changed") ||
+        line.startsWith("%paste-buffer-deleted") ||
         line.startsWith("%session-changed") ||
+        line.startsWith("%session-renamed") ||
         line.startsWith("%session-window-changed") ||
         line.startsWith("%sessions-changed") ||
+        line.startsWith("%subscription-changed") ||
         line.startsWith("%unlinked-window-add") ||
-        line.startsWith("%unlinked-window-close") ||
-        line.startsWith("%window-add") ||
-        line.startsWith("%window-close")) {
+        line.startsWith("%unlinked-window-close")) {
       refreshAllState();
     }
   }
@@ -913,6 +932,7 @@ class MainWindow : public QMainWindow {
   std::unordered_map<QString, PaneInfo> panes_;
   QVector<QString> window_order_;
   QString active_window_id_;
+  bool paused_ = false;
 };
 
 int main(int argc, char **argv) {
