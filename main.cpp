@@ -3,7 +3,7 @@
 #include <QKeyEvent>
 #include <QMainWindow>
 #include <QPainter>
-#include <QProcess>
+#include <QSocketNotifier>
 #include <QStatusBar>
 #include <QTabBar>
 #include <QTimer>
@@ -14,6 +14,13 @@
 #include <functional>
 #include <optional>
 #include <unordered_map>
+
+#include <errno.h>
+#include <fcntl.h>
+#include <pty.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 struct Cell {
   QChar ch = QChar(' ');
@@ -357,15 +364,31 @@ class TmuxClient : public QObject {
   Q_OBJECT
  public:
   explicit TmuxClient(QObject *parent = nullptr) : QObject(parent) {
-    connect(&process_, &QProcess::readyReadStandardOutput, this, &TmuxClient::onReadyRead);
-    connect(&process_, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-            &TmuxClient::onFinished);
   }
 
   void start() {
-    process_.setProgram("tmux");
-    process_.setArguments({"-CC", "new"});
-    process_.start();
+    if (pid_ > 0) return;
+    pid_ = forkpty(&master_fd_, nullptr, nullptr, nullptr);
+    if (pid_ == 0) {
+      setenv("TERM", "xterm-256color", 1);
+      execlp("tmux", "tmux", "-CC", "new", nullptr);
+      _exit(1);
+    }
+    if (pid_ < 0) {
+      emit tmuxExited();
+      return;
+    }
+
+    int flags = fcntl(master_fd_, F_GETFL, 0);
+    fcntl(master_fd_, F_SETFL, flags | O_NONBLOCK);
+
+    notifier_ = new QSocketNotifier(master_fd_, QSocketNotifier::Read, this);
+    connect(notifier_, &QSocketNotifier::activated, this, &TmuxClient::onReadyRead);
+
+    wait_timer_ = new QTimer(this);
+    wait_timer_->setInterval(500);
+    connect(wait_timer_, &QTimer::timeout, this, &TmuxClient::checkChild);
+    wait_timer_->start();
   }
 
   void sendCommand(const QString &command,
@@ -373,7 +396,9 @@ class TmuxClient : public QObject {
     pending_.push_back({command, std::move(callback)});
     QByteArray bytes = command.toUtf8();
     bytes.append('\n');
-    process_.write(bytes);
+    if (master_fd_ >= 0) {
+      ::write(master_fd_, bytes.constData(), static_cast<size_t>(bytes.size()));
+    }
   }
 
  signals:
@@ -390,7 +415,23 @@ class TmuxClient : public QObject {
   };
 
   void onReadyRead() {
-    buffer_.append(process_.readAllStandardOutput());
+    if (master_fd_ < 0) return;
+    QByteArray chunk;
+    char buf[4096];
+    while (true) {
+      ssize_t n = ::read(master_fd_, buf, sizeof(buf));
+      if (n > 0) {
+        chunk.append(buf, static_cast<int>(n));
+      } else {
+        if (n == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+        if (n == 0) {
+          emit tmuxExited();
+        }
+        break;
+      }
+    }
+    if (chunk.isEmpty()) return;
+    buffer_.append(chunk);
     while (true) {
       int idx = buffer_.indexOf('\n');
       if (idx < 0) break;
@@ -401,7 +442,15 @@ class TmuxClient : public QObject {
     }
   }
 
-  void onFinished(int, QProcess::ExitStatus) { emit tmuxExited(); }
+  void checkChild() {
+    if (pid_ <= 0) return;
+    int status = 0;
+    pid_t result = waitpid(pid_, &status, WNOHANG);
+    if (result == pid_) {
+      emit tmuxExited();
+      pid_ = -1;
+    }
+  }
 
   void parseLine(const QString &line) {
     if (in_output_) {
@@ -506,7 +555,10 @@ class TmuxClient : public QObject {
     return out;
   }
 
-  QProcess process_;
+  int master_fd_ = -1;
+  pid_t pid_ = -1;
+  QSocketNotifier *notifier_ = nullptr;
+  QTimer *wait_timer_ = nullptr;
   QByteArray buffer_;
   bool in_output_ = false;
   bool output_error_ = false;

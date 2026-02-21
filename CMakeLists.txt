@@ -13,4 +13,5 @@ add_executable(kerminal main.cpp)
 target_link_libraries(kerminal
   PRIVATE
     Qt5::Widgets
+    util
 )
