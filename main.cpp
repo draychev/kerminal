@@ -1,30 +1,11 @@
-#include <QApplication>
-#include <QMainWindow>
-#include <QMessageBox>
-#include <KParts/ReadOnlyPart>
-#include <KPluginFactory>
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 
-int main(int argc, char **argv) {
-  QApplication app(argc, argv);
-
-  qputenv("SHELL", QByteArray("/bin/bash"));
-
-  auto result = KPluginFactory::loadFactory("konsolepart");
-  if (!result) {
-    QMessageBox::critical(nullptr, "kerminal", "Failed to load konsolepart.");
-    return 1;
-  }
-
-  QMainWindow window;
-  auto *part = result.plugin->create<KParts::ReadOnlyPart>(&window);
-  if (!part) {
-    QMessageBox::critical(nullptr, "kerminal", "Failed to create konsole part.");
-    return 1;
-  }
-
-  window.setCentralWidget(part->widget());
-  window.resize(960, 600);
-  window.show();
-
-  return app.exec();
+int main() {
+  const char *argv[] = {"konsole", nullptr};
+  execvp("konsole", const_cast<char *const *>(argv));
+  fprintf(stderr, "kerminal: failed to launch konsole: %s\n", strerror(errno));
+  return 1;
 }
