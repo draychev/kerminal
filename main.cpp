@@ -357,7 +357,8 @@ class TmuxClient : public QObject {
  public:
   explicit TmuxClient(QObject *parent = nullptr) : QObject(parent) {
     connect(&process_, &QProcess::readyReadStandardOutput, this, &TmuxClient::onReadyRead);
-    connect(&process_, &QProcess::finished, this, &TmuxClient::onFinished);
+    connect(&process_, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            &TmuxClient::onFinished);
   }
 
   void start() {
@@ -701,13 +702,15 @@ class MainWindow : public QMainWindow {
 
   void updateTabs() {
     tab_bar_->blockSignals(true);
-    tab_bar_->clear();
+    while (tab_bar_->count() > 0) {
+      tab_bar_->removeTab(0);
+    }
     int active_index = 0;
     for (int i = 0; i < window_order_.size(); ++i) {
       const QString &window_id = window_order_[i];
       auto it = windows_.find(window_id);
       if (it == windows_.end()) continue;
-      tab_bar_->addTab(QString("%1: %2").arg(it->second.index).arg(it->second.name));
+      tab_bar_->addTab(QString("%1: %2").arg(it.value().index).arg(it.value().name));
       if (window_id == active_window_id_) active_index = i;
     }
     tab_bar_->setCurrentIndex(active_index);
@@ -788,7 +791,7 @@ class MainWindow : public QMainWindow {
     if (active_window_id_.isEmpty()) return;
     auto win_it = windows_.find(active_window_id_);
     if (win_it == windows_.end()) return;
-    auto layout_opt = parseLayout(win_it->second.layout);
+    auto layout_opt = parseLayout(win_it.value().layout);
     if (!layout_opt) return;
 
     QHash<int, QString> index_to_id;
@@ -796,7 +799,7 @@ class MainWindow : public QMainWindow {
       index_to_id.insert(pair.second.index, pair.first);
     }
 
-    applyLayout(layout_opt.value(), index_to_id, win_it->second.active_pane_id);
+    applyLayout(layout_opt.value(), index_to_id, win_it.value().active_pane_id);
   }
 
   void applyLayout(const LayoutNode &node, const QHash<int, QString> &index_to_id,
@@ -899,7 +902,7 @@ class MainWindow : public QMainWindow {
   QString activePaneId() const {
     auto win_it = windows_.find(active_window_id_);
     if (win_it == windows_.end()) return QString();
-    return win_it->second.active_pane_id;
+    return win_it.value().active_pane_id;
   }
 
   TmuxClient tmux_;
