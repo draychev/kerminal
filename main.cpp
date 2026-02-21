@@ -28,7 +28,7 @@ struct Cell {
 
 class ScreenBuffer {
  public:
-  ScreenBuffer() = default;
+  ScreenBuffer() { resize(1, 1); }
   void resize(int cols, int rows) {
     cols_ = std::max(1, cols);
     rows_ = std::max(1, rows);
