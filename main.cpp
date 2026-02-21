@@ -673,7 +673,10 @@ class MainWindow : public QMainWindow {
 
   void handlePaneOutput(const QString &pane_id, const QByteArray &data) {
     auto it = panes_.find(pane_id);
-    if (it == panes_.end()) return;
+    if (it == panes_.end() || it->second.widget == nullptr) {
+      pending_output_[pane_id].append(data);
+      return;
+    }
     it->second.widget->writeOutput(data);
   }
 
@@ -758,6 +761,11 @@ class MainWindow : public QMainWindow {
         info.widget = new PaneWidget(surface_);
         info.widget->setFontMetrics(QFontDatabase::systemFont(QFontDatabase::FixedFont));
         connect(info.widget, &PaneWidget::keyPressed, this, &MainWindow::forwardKeyPress);
+      }
+      auto pending_it = pending_output_.find(info.id);
+      if (pending_it != pending_output_.end() && info.widget) {
+        info.widget->writeOutput(pending_it->second);
+        pending_output_.erase(pending_it);
       }
       next[info.id] = info;
     }
@@ -982,6 +990,7 @@ class MainWindow : public QMainWindow {
   QHash<QString, SessionInfo> sessions_;
   QHash<QString, WindowInfo> windows_;
   std::unordered_map<QString, PaneInfo> panes_;
+  std::unordered_map<QString, QByteArray> pending_output_;
   QVector<QString> window_order_;
   QString active_window_id_;
   bool paused_ = false;
