@@ -702,10 +702,10 @@ class MainWindow : public QMainWindow {
         "list-sessions -F \"#{session_id}\t#{session_name}\t#{session_attached}\"",
         [this](const QStringList &lines, bool) { parseSessions(lines); });
     tmux_.sendCommand(
-        "list-windows -a -F \"#{session_id}\t#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_layout}\t#{window_active_pane}\"",
+        "list-windows -F \"#{session_id}\t#{window_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{window_layout}\t#{window_active_pane}\"",
         [this](const QStringList &lines, bool) { parseWindows(lines); });
     tmux_.sendCommand(
-        "list-panes -a -F \"#{window_id}\t#{pane_id}\t#{pane_index}\t#{pane_active}\"",
+        "list-panes -s -F \"#{window_id}\t#{pane_id}\t#{pane_index}\t#{pane_active}\"",
         [this](const QStringList &lines, bool) { parsePanes(lines); });
   }
 
@@ -802,7 +802,7 @@ class MainWindow : public QMainWindow {
     int w = 1;
     int h = 1;
     bool is_leaf = false;
-    int pane_index = -1;
+    QString pane_id;
     QVector<LayoutNode> children;
   };
 
@@ -840,9 +840,9 @@ class MainWindow : public QMainWindow {
       node.is_leaf = false;
     } else if (c == ',') {
       ++pos;
-      int pane = readNumber(text, pos);
+      QString pane = readIdentifier(text, pos);
       node.is_leaf = true;
-      node.pane_index = pane;
+      node.pane_id = pane;
     }
     return node;
   }
@@ -866,6 +866,17 @@ class MainWindow : public QMainWindow {
     return value;
   }
 
+  QString readIdentifier(const QString &text, int &pos) {
+    QString out;
+    while (pos < text.size()) {
+      QChar c = text[pos];
+      if (c == ',' || c == ']' || c == '}') break;
+      out.append(c);
+      ++pos;
+    }
+    return out.trimmed();
+  }
+
   void layoutActiveWindow() {
     if (active_window_id_.isEmpty()) return;
     auto win_it = windows_.find(active_window_id_);
@@ -884,7 +895,10 @@ class MainWindow : public QMainWindow {
   void applyLayout(const LayoutNode &node, const QHash<int, QString> &index_to_id,
                    const QString &active_pane_id) {
     if (node.is_leaf) {
-      QString pane_id = index_to_id.value(node.pane_index);
+      QString pane_id = node.pane_id;
+      if (!pane_id.startsWith('%')) {
+        pane_id = index_to_id.value(pane_id.toInt(), pane_id);
+      }
       auto it = panes_.find(pane_id);
       if (it == panes_.end()) return;
       PaneInfo &pane = it->second;
